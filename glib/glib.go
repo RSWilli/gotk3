@@ -125,7 +125,7 @@ func TypeFromName(typeName string) Type {
 	return Type(C.g_type_from_name(cstr))
 }
 
-//TypeNextBase is a wrapper around g_type_next_base
+// TypeNextBase is a wrapper around g_type_next_base
 func TypeNextBase(leafType, rootType Type) Type {
 	return Type(C.g_type_next_base(C.GType(leafType), C.GType(rootType)))
 }
@@ -574,6 +574,15 @@ func (v *Object) goValue() (interface{}, error) {
 	return rv, err
 }
 
+// Unsafe returns the unsafe pointer to the underlying object. This method is primarily
+// for internal usage and is exposed for visibility in other packages.
+func (v *Object) Unsafe() unsafe.Pointer {
+	if v == nil || v.GObject == nil {
+		return nil
+	}
+	return unsafe.Pointer(v.GObject)
+}
+
 // Take wraps a unsafe.Pointer as a glib.Object, taking ownership of it.
 // This function is exported for visibility in other gotk3 packages and
 // is not meant to be used by applications.
@@ -913,6 +922,13 @@ func (v *Value) Type() (actual Type, fundamental Type, err error) {
 	return Type(cActual), Type(cFundamental), nil
 }
 
+// ValueTransformer is an interface that can be implemented by types bindings C types.
+// When converting from go types to GValues, the value is checked for this implementation
+// and will use it before considering other options.
+type ValueTransformer interface {
+	ToGValue() (*Value, error)
+}
+
 // GValue converts a Go type to a comparable GValue.  GValue()
 // returns a non-nil error if the conversion was unsuccessful.
 func GValue(v interface{}) (gvalue *Value, err error) {
@@ -923,6 +939,10 @@ func GValue(v interface{}) (gvalue *Value, err error) {
 		}
 		val.SetPointer(uintptr(unsafe.Pointer(nil)))
 		return val, nil
+	}
+
+	if transformer, ok := v.(ValueTransformer); ok {
+		return transformer.ToGValue()
 	}
 
 	switch e := v.(type) {
@@ -1320,6 +1340,25 @@ func (v *Value) SetPointer(p uintptr) {
 // GetPointer is a wrapper around g_value_get_pointer().
 func (v *Value) GetPointer() unsafe.Pointer {
 	return unsafe.Pointer(C.g_value_get_pointer(v.native()))
+}
+
+// SetEnum is a wrapper around g_value_set_enum().
+func (v *Value) SetEnum(e int) {
+	C.g_value_set_enum(v.native(), C.gint(e))
+}
+
+// Interface can be implemented by extending packages. They provide the base type for the interface and
+// a function to call during interface_init.
+//
+// The function is called during class_init and  is passed a TypeInstance populated with the GType
+// corresponding to the Go object, a pointer to the underlying C object, and a pointer to a reference
+// Go object. When the object is actually used, a pointer to it can be retrieved from the C object with
+// FromObjectUnsafePrivate.
+//
+// The user of the Interface is responsible for implementing the methods required by the interface. The GoType
+// provided to the InterfaceInitFunc will be the object that is expected to carry the implementation.
+type Interface interface {
+	Type() Type
 }
 
 // GetString is a wrapper around g_value_get_string().  GetString()
